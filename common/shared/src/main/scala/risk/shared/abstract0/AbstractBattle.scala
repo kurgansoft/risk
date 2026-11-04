@@ -7,16 +7,16 @@ case object DiceThrowingPhase extends BattlePhase
 case object ResultPhase extends BattlePhase
 
 abstract class AbstractBattle(
-                               val noOfAttackers: Int,
-                               val noOfDefenders: Int = 0,
-                               val phase: BattlePhase = DeclareNoOfTroopsPhase,
-                               val attackerDieRolling: Boolean = false,
-                               val defenderDieRolling: Boolean = false,
-                               val attackerDie: Option[List[Int]] = None,
-                               val defenderDie: Option[List[Int]] = None,
-                 ) {
+    val noOfAttackers: Int,
+    val noOfDefenders: Int = 0,
+    val phase: BattlePhase = DeclareNoOfTroopsPhase,
+    val attackerDieRolling: Boolean = false,
+    val defenderDieRolling: Boolean = false,
+    val attackerDie: Option[List[Int]] = None,
+    val defenderDie: Option[List[Int]] = None
+) {
   def invariant(): Unit = {
-    assert(noOfAttackers >= 0 && noOfAttackers <=3)
+    assert(noOfAttackers >= 0 && noOfAttackers <= 3)
     if (attackerDie.isDefined) {
       assert(attackerDie.map(_.size).get == noOfAttackers)
     }
@@ -55,8 +55,10 @@ abstract class AbstractBattle(
 
   lazy val noOfTroopsLostByTheDefender: Int = pairs.count(p => p._1 > p._2)
 
-  lazy val remainingAttackingTroops: Int = noOfAttackers - noOfTroopsLostByTheAttacker
+  lazy val remainingAttackingTroops: Int =
+    noOfAttackers - noOfTroopsLostByTheAttacker
 
-  lazy val remainingDefendingTroops: Int = noOfDefenders - noOfTroopsLostByTheDefender
+  lazy val remainingDefendingTroops: Int =
+    noOfDefenders - noOfTroopsLostByTheDefender
 
 }

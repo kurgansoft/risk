@@ -3,11 +3,19 @@ package risk.backend.launchers
 import gbge.backend.config.GameConfig
 import gbge.backend.{BackendGameProps, GenericLauncher}
 import risk.backend.BackendRiskProps
-import zio.{ConfigProvider, Runtime, Scope, ZIO, ZIOAppArgs, ZIOAppDefault, ZLayer}
+import zio.{
+  ConfigProvider,
+  Runtime,
+  Scope,
+  ZIO,
+  ZIOAppArgs,
+  ZIOAppDefault,
+  ZLayer
+}
 
 object Launcher extends ZIOAppDefault {
 
-  private val games: Seq[BackendGameProps[_, _]] = Seq(BackendRiskProps)
+  private val games: Seq[BackendGameProps[?, ?]] = Seq(BackendRiskProps)
 
   private val gl = GenericLauncher(games)
 

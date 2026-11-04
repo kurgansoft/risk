@@ -1,13 +1,14 @@
 package risk.backend
 
-import org.scalatest.funsuite.AnyFunSuite
 import risk.shared.abstract0.Attack
+import zio.test.{ZIOSpecDefault, assertTrue}
 
-class CampaignTest extends AnyFunSuite {
-
-  test("test1") {
-    val campaign = Campaign(1,2)
-    val r = campaign.reduce(Attack(2))
-    assert(r.toOption.get.battle.noOfAttackers == 2)
-  }
+object CampaignTest extends ZIOSpecDefault {
+  override def spec = suite("CampaignTest")(
+    test("attack starts a battle with the requested number of attackers") {
+      val campaign = Campaign(1, 2)
+      val result = campaign.reduce(Attack(2))
+      assertTrue(result.toOption.get.battle.noOfAttackers == 2)
+    }
+  )
 }

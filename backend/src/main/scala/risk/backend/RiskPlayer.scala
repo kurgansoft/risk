@@ -2,22 +2,53 @@ package risk.backend
 
 import risk.shared.ClientRiskPlayer
 import risk.shared.abstract0.{AbstractRiskPlayer, RiskColor}
+import zio.blocks.schema.Schema
 
 case class RiskPlayer(
-                       override val role: Int,
-                       override val color: RiskColor,
-                       override val troops: Int,
-                       override val eliminated: Boolean = false,
-                       override val rollDefenderDieAutomatically: Boolean = false,
-                       override val rollAttackerDieAutomatically: Boolean = false,
-                       override val defendWithOneAutomaticallyIfOnlyOneUnitIsPresent: Boolean = false,
-                       inventory: List[String] = List.empty,
-                     ) extends AbstractRiskPlayer(role, color, troops, eliminated, rollDefenderDieAutomatically, rollAttackerDieAutomatically, defendWithOneAutomaticallyIfOnlyOneUnitIsPresent) {
+    override val role: Int,
+    override val color: RiskColor,
+    override val troops: Int,
+    override val eliminated: Boolean = false,
+    override val rollDefenderDieAutomatically: Boolean = false,
+    override val rollAttackerDieAutomatically: Boolean = false,
+    override val defendWithOneAutomaticallyIfOnlyOneUnitIsPresent: Boolean =
+      false,
+    inventory: List[String] = List.empty
+) extends AbstractRiskPlayer(
+      role,
+      color,
+      troops,
+      eliminated,
+      rollDefenderDieAutomatically,
+      rollAttackerDieAutomatically,
+      defendWithOneAutomaticallyIfOnlyOneUnitIsPresent
+    ) {
 
   lazy val toOwnersClientRiskPlayer: ClientRiskPlayer =
-    ClientRiskPlayer(role, color, troops, eliminated, rollDefenderDieAutomatically, rollAttackerDieAutomatically, defendWithOneAutomaticallyIfOnlyOneUnitIsPresent, Right(inventory))
+    ClientRiskPlayer(
+      role,
+      color,
+      troops,
+      eliminated,
+      rollDefenderDieAutomatically,
+      rollAttackerDieAutomatically,
+      defendWithOneAutomaticallyIfOnlyOneUnitIsPresent,
+      Right(inventory)
+    )
 
   lazy val toClientRiskPlayer: ClientRiskPlayer =
-    ClientRiskPlayer(role, color, troops, eliminated, rollDefenderDieAutomatically, rollAttackerDieAutomatically, defendWithOneAutomaticallyIfOnlyOneUnitIsPresent, Left(inventory.size))
+    ClientRiskPlayer(
+      role,
+      color,
+      troops,
+      eliminated,
+      rollDefenderDieAutomatically,
+      rollAttackerDieAutomatically,
+      defendWithOneAutomaticallyIfOnlyOneUnitIsPresent,
+      Left(inventory.size)
+    )
 }
 
+object RiskPlayer {
+  implicit val schema: Schema[RiskPlayer] = Schema.derived
+}

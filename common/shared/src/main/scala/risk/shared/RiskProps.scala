@@ -2,7 +2,7 @@ package risk.shared
 
 import gbge.shared.GameProps
 import risk.shared.abstract0.RiskAction
-import zio.json.JsonCodec
+import zio.blocks.schema.json.JsonCodec
 
 trait RiskProps extends GameProps[RiskAction, ClientRisk] {
   override val name: String = "Risk"

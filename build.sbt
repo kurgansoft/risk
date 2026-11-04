@@ -2,17 +2,16 @@ import sbt.{Compile, ThisBuild, file, project}
 
 import scala.collection.Seq
 
-ThisBuild / scalaVersion := "3.3.5"
+ThisBuild / scalaVersion := "3.9.0"
+ThisBuild / scalacOptions ++= Seq("-experimental")
 
-val gbgeCommitHash = "eb7110edc8c1cc8f2d17e3161ef2fa7a724d1954"
+val gbgeCommitHash = "c9bf42b0a0605050c313107c972bfe1add0ad2bd"
 
 lazy val common = crossProject(JSPlatform, JVMPlatform).in(file("common")).
   settings(
     name := "common",
     libraryDependencies ++= Seq(
       "com.github.kurgansoft" % "gbge" % gbgeCommitHash,
-      "dev.optics" %%% "monocle-core" % "3.3.0",
-      "dev.optics" %%% "monocle-macro" % "3.3.0",
     ),
     resolvers += "jitpack" at "https://jitpack.io"
   )
@@ -28,8 +27,10 @@ lazy val backend = project.in(file("backend")).settings(
   name := "backend",
   mainClass := Some("risk.backend.launchers.Launcher"),
   libraryDependencies ++= Seq(
-    "org.scalatest" %% "scalatest" % "3.2.20" % Test
+    "dev.zio" %% "zio-test" % "2.1.27" % Test,
+    "dev.zio" %% "zio-test-sbt" % "2.1.27" % Test
   ),
+  testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
   assemblyMergeStrategy := {
     case x if Assembly.isConfigFile(x) =>
       MergeStrategy.concat

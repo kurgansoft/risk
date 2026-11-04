@@ -9,7 +9,7 @@ object RollingDieComponent {
 
   case class State(currentRandomDie: List[Int])
 
-  class Backend($: BackendScope[Int, State]) {
+  class Backend($ : BackendScope[Int, State]) {
 
     var interval: js.UndefOr[js.timers.SetIntervalHandle] =
       js.undefined
@@ -17,7 +17,7 @@ object RollingDieComponent {
     def tick = $.modState(_ => {
       val numbers: List[Int] =
         (for (_ <- 1 to $.props.runNow())
-          yield Random.between(1,7)).toList
+          yield Random.between(1, 7)).toList
       State(numbers)
     })
 
@@ -33,13 +33,18 @@ object RollingDieComponent {
     }
 
     def render(s: State) = {
-      div(display:="flex", flexDirection:="column",
-        s.currentRandomDie.map(n => div(Directives.integerToDieString(n))).toTagMod
+      div(
+        display := "flex",
+        flexDirection := "column",
+        s.currentRandomDie
+          .map(n => div(Directives.integerToDieString(n)))
+          .toTagMod
       )
     }
   }
 
-  val rollingDieComponent = ScalaComponent.builder[Int]
+  val rollingDieComponent = ScalaComponent
+    .builder[Int]
     .initialState(State(List.empty))
     .renderBackend[Backend]
     .componentDidMount(_.backend.start)
