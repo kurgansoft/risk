@@ -2,6 +2,7 @@ package risk.backend
 
 import gbge.shared.GameState
 import risk.shared.abstract0._
+import risk.shared.abstract0.RiskColor.*
 import zio.test.{ZIOSpecDefault, assertTrue}
 
 object DivideTerritoriesBetweenPlayersTest extends ZIOSpecDefault {

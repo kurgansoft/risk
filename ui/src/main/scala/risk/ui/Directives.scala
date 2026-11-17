@@ -2,36 +2,22 @@ package risk.ui
 
 import gbge.client.events_and_effects.DispatchActionWithToken
 import gbge.shared.FrontendPlayer
+import gbge.shared.actions.{LinkRoleToPlayer, UnlinkPlayerFromRole}
 import japgolly.scalajs.react.{Callback, ReactEventFromInput}
 import japgolly.scalajs.react.vdom.TagOf
 import org.scalajs.dom.html.{Button, Div, Input, TableSection}
-import japgolly.scalajs.react.vdom.all._
-import risk.shared.{
-  ClientBattle,
-  ClientCampaign,
-  ClientInnerRisk,
-  ClientRiskPlayer
-}
-import risk.shared.abstract0.{
-  ABANDONED,
-  ATTACKER_LOST,
-  AddingUnits,
-  BattleAndManeuver,
-  ColorMap,
-  DEFENDER_LOST,
-  DeclareNoOfTroopsPhase,
-  DeployingUnits,
-  DiceThrowingPhase,
-  DropColor,
-  PickColor,
-  RUNNING,
-  ResultPhase,
-  RiskColor,
-  TerritoryOccupationInfo
-}
+import japgolly.scalajs.react.vdom.all.*
+import risk.shared.*
+import risk.shared.abstract0.*
+import risk.shared.abstract0.GamePhase.*
 import uiglue.{Event, EventLoop}
 
+import scala.util.Try
+
 object Directives {
+
+  private def getRiskColorFromRoleId(roleId: Int): RiskColor =
+    RiskRole.getRoleFromRoleId(roleId).color
 
   def integerToDieString(integer: Int): String = integer match {
     case 1 => "⚀"
@@ -43,11 +29,24 @@ object Directives {
     case _ => "-"
   }
 
-  def selectX(string: String): String = "<<< " + string + " >>>"
+  private def coloredSquare(color: RiskColor) = {
+    val square: String = "■"
+    span(
+      width := "16px",
+      height := "16px",
+      display := "inline-block",
+      backgroundColor := color.colorCode,
+      border := "1px solid #243247",
+      borderRadius := "3px",
+      aria.label := s"$color color"
+    )
+  }
 
-  def playerStatus2(you: FrontendPlayer, colorMap: ColorMap): TagOf[Div] = {
+  private def selectX(string: String): String = "<<< " + string + " >>>"
+
+  def playerStatus2(you: FrontendPlayer): TagOf[Div] = {
     val yourColor: Option[RiskColor] =
-      colorMap.colorOfRole(you.role.getOrElse(-1))
+      you.role.flatMap(roleId => Try(getRiskColorFromRoleId(roleId)).toOption)
     val square: String = "■"
     div(
       fontSize := "xx-large",
@@ -58,9 +57,9 @@ object Directives {
     )
   }
 
-  def playerStatus(you: FrontendPlayer, colorMap: ColorMap): TagOf[Div] = {
+  def playerStatus(you: FrontendPlayer): TagOf[Div] = {
     val yourColor: Option[RiskColor] =
-      colorMap.colorOfRole(you.role.getOrElse(-1))
+      you.role.flatMap(roleId => Try(getRiskColorFromRoleId(roleId)).toOption)
     div(
       border := "solid 1px white",
       div("You are: " + you.name),
@@ -76,8 +75,190 @@ object Directives {
     )
   }
 
+  private def nameAndAdmin(frontendPlayer: FrontendPlayer) = div(
+    textAlign := "right",
+    Option.when(frontendPlayer.isAdmin)(div("You are the admin")),
+    div(s"You are: ${frontendPlayer.name}")
+  )
+
+  def renderLobby(
+      clientRisk: ClientRisk,
+      players: List[FrontendPlayer],
+      playerMaybe: Option[FrontendPlayer]
+  )(commander: EventLoop.EventHandler[Event]): TagOf[Div] =
+    div(
+      playerMaybe match {
+        case None                 => div("You are not in this game.")
+        case Some(frontendPlayer) =>
+          div(
+            Directives.lobbyPlayerLists(players),
+            riskRoleChooser(frontendPlayer, clientRisk.noOfPlayers, commander)(
+              using players
+            ),
+            gameStarter(
+              clientRisk.activeRoles.size,
+              clientRisk.noOfPlayers,
+              frontendPlayer.isAdmin
+            )(commander),
+            nameAndAdmin(frontendPlayer)(
+              position := "fixed",
+              bottom := "10px",
+              right := "10px"
+            )
+          )
+      }
+    )
+
+  private def gameStarter(noOfRoles: Int, roomSize: Int, isAdmin: Boolean)(
+      commander: EventLoop.EventHandler[Event]
+  ) = {
+    val rolesFilled = noOfRoles == roomSize
+    val progress = noOfRoles * 100 / roomSize
+    div(
+      color := "black",
+      maxWidth := "560px",
+      margin := "28px auto",
+      padding := "24px",
+      textAlign := "center",
+      backgroundColor := "white",
+      borderRadius := "10px",
+      boxShadow := "0 2px 8px rgba(0, 0, 0, 0.12)",
+      h2("Ready to play?"),
+      div(
+        "Each player needs a role. Choose a color above to claim one; the game starts when every role is taken.",
+        marginBottom := "20px"
+      ),
+      div(
+        display := "flex",
+        justifyContent := "center",
+        alignItems := "center",
+        VdomStyle("gap") := "14px",
+        marginBottom := "8px",
+        Option.when(isAdmin)(
+          button(
+            `type` := "button",
+            `class` := "btn btn-primary",
+            disabled := (roomSize == 3),
+            aria.label := "Decrease number of players",
+            "-",
+            onClick --> Callback {
+              commander(ClientDecreaseProposedNumberOfPlayers)
+            }
+          )
+        ),
+        div(
+          fontSize := "24px",
+          fontWeight.bold,
+          s"(no. of roles taken) $noOfRoles / $roomSize (room size)"
+        ),
+        Option.when(isAdmin)(
+          button(
+            `type` := "button",
+            `class` := "btn btn-primary",
+            disabled := (roomSize == 5),
+            aria.label := "Increase number of players",
+            "+",
+            onClick --> Callback {
+              commander(ClientIncreaseProposedNumberOfPlayers)
+            }
+          )
+        )
+      ),
+      div(
+        width := "100%",
+        height := "8px",
+        marginBottom := "16px",
+        backgroundColor := "#e9ecef",
+        borderRadius := "4px",
+        div(
+          width := s"$progress%",
+          height := "100%",
+          backgroundColor := "#28a745",
+          borderRadius := "4px"
+        )
+      ),
+      if (rolesFilled) {
+        div(
+          color := "#218838",
+          marginBottom := "16px",
+          "All roles are filled. The game is ready to start!"
+        )
+      } else {
+        div(
+          color := "#5b6573",
+          marginBottom := "16px",
+          s"${roomSize - noOfRoles} more ${
+              if (roomSize - noOfRoles == 1) "role is" else "roles are"
+            } needed before the game can start."
+        )
+      },
+      if (isAdmin && rolesFilled)
+        button(
+          `type` := "button",
+          `class` := "btn btn-primary",
+          "START GAME",
+          onClick --> Callback {
+            commander(ClientInit)
+          }
+        )
+      else if (isAdmin)
+        div("You can start the game as soon as every role is taken.")
+      else
+        div("The game admin will start the game once all roles are taken.")
+    )
+  }
+
+  def lobbyPlayerLists(players: List[FrontendPlayer]): TagOf[Div] =
+    div(
+      display := "flex",
+      flexDirection := "row",
+      VdomStyle("gap") := "24px",
+      width := "100%",
+      div(
+        flex := "1",
+        width := "50%",
+        textAlign := "center",
+        h1("Players with roles"),
+        players
+          .filter(_.role.isDefined)
+          .map { player =>
+            val roleId = player.role.get
+            val color = RiskRole.getRoleFromRoleId(roleId).color
+            div(
+              display := "flex",
+              alignItems := "center",
+              justifyContent := "center",
+              VdomStyle("gap") := "8px",
+              padding := "10px 14px",
+              marginBottom := "8px",
+              borderRadius := "6px",
+              player.name,
+              coloredSquare(color),
+              s" - (${color.toString.toLowerCase})"
+            )
+          }
+          .toTagMod
+      ),
+      div(
+        flex := "1",
+        width := "50%",
+        textAlign := "center",
+        h1("Players with no roles"),
+        players
+          .filterNot(_.role.isDefined)
+          .map { player =>
+            div(
+              padding := "10px 14px",
+              marginBottom := "8px",
+              borderRadius := "6px",
+              player.name
+            )
+          }
+          .toTagMod
+      )
+    )
+
   def playerStatuses(
-      colorMap: ColorMap,
       players: List[FrontendPlayer]
   ): TagOf[Div] = {
     val playersWithRoles = players.filter(_.role.isDefined)
@@ -88,8 +269,7 @@ object Directives {
         .map(player =>
           div(
             player.name + " - " + player.role.get + " [" +
-              colorMap
-                .colorOfRole(player.role.get)
+              Try(getRiskColorFromRoleId(player.role.get)).toOption
                 .map(_.toString)
                 .getOrElse("NO COLOR")
               + "]"
@@ -100,46 +280,88 @@ object Directives {
     )
   }
 
-  def riskRoleChooser(
+  private def riskRoleChooser(
       you: FrontendPlayer,
-      colorMap: ColorMap,
+      roomSize: Int,
       commander: EventLoop.EventHandler[Event]
   )(implicit players: List[FrontendPlayer]): TagOf[Div] = {
-    val colorsTaken = colorMap.colorMap.keys.toList
-    val availableColors: List[RiskColor] =
-      RiskColor.enumerateColors.filterNot(colorsTaken.contains(_))
+    val rolesTaken: List[RiskRole] = players
+      .flatMap(_.role)
+      .flatMap(roleId => Try(RiskRole.getRoleFromRoleId(roleId)).toOption)
+    val availableRoles: List[RiskRole] =
+      RiskRole.allRole.filterNot(rolesTaken.contains).toList
     val yourColor: Option[RiskColor] =
-      colorMap.colorOfRole(you.role.getOrElse(-1))
+      you.role.flatMap(roleId => Try(getRiskColorFromRoleId(roleId)).toOption)
+    val text =
+      (yourColor, roomSize == rolesTaken.size) match {
+        case (None, true)  => "No role left for you :-("
+        case (None, false) => "Choose a color"
+        case _             => "Click on a color to switch to that color."
+      }
     div(
       display := "flex",
       flexDirection := "row",
+      VdomStyle("gap") := "24px",
       alignItems := "flex-start",
       div(
-        width := "100px",
-        availableColors
-          .map(color => {
-            button(
-              `type` := "button",
-              width := "100px",
-              `class` := "btn btn-primary",
-              color.toString,
-              onClick --> Callback {
-                commander(
-                  DispatchActionWithToken(PickColor(you.role.get, color))
+        width := "50%",
+        textAlign := "center",
+        h2(text),
+        Option.when(roomSize > rolesTaken.size || yourColor.isDefined)(
+          div(
+            display := "flex",
+            flexDirection := "column",
+            alignItems := "center",
+            VdomStyle("gap") := "8px",
+            availableRoles
+              .sortBy(_.roleId)
+              .map { role =>
+                button(
+                  `type` := "button",
+                  width := "140px",
+                  `class` := "btn btn-primary",
+                  backgroundColor := role.color.colorCode,
+                  color := role.color.contrastColorCode,
+                  role.color.toString,
+                  onClick --> Callback {
+                    commander(
+                      DispatchActionWithToken(
+                        LinkRoleToPlayer(you.id, role.roleId)
+                      )
+                    )
+                  }
                 )
               }
-            )
-          })
-          .toTagMod
+              .toTagMod
+          )
+        )
       ),
-      Option.when(yourColor.isDefined)(
-        button(
-          `type` := "button",
-          `class` := "btn btn-primary",
-          "DROP YOUR COLOR",
-          onClick --> Callback {
-            commander(DispatchActionWithToken(DropColor(you.role.get)))
-          }
+      div(
+        width := "50%",
+        textAlign := "center",
+        h2("Your color"),
+        yourColor match {
+          case Some(color) =>
+            div(
+              display := "flex",
+              justifyContent := "center",
+              alignItems := "center",
+              VdomStyle("gap") := "8px",
+              coloredSquare(color),
+              s"${color.toString.toLowerCase}"
+            )
+          case None => div("You have no color.")
+        },
+        Option.when(yourColor.isDefined)(
+          button(
+            `type` := "button",
+            `class` := "btn btn-primary",
+            marginTop := "12px",
+            "DROP YOUR COLOR",
+            onClick --> Callback {
+              commander(DispatchActionWithToken(UnlinkPlayerFromRole(you.id)))
+            }
+          )
         )
       )
     )
@@ -147,19 +369,17 @@ object Directives {
 
   def hint(
       you: FrontendPlayer,
-      innerRisk: ClientInnerRisk,
-      colorMap: ColorMap
+      innerRisk: ClientInnerRisk
   ): TagOf[Div] = {
     val message: String = innerRisk.phase match {
       case AddingUnits => {
-        if (you.role.contains(innerRisk.currentPlayerIndex)) {
-          val color = colorMap.colorOfRole(you.role.get)
-          if (color.isDefined)
-            "Click on a " + color.get.toString.toLowerCase + " tile to place a unit there."
-          else
-            "You are not in this game."
-        } else {
-          "Wait for your turn."
+        you.role match {
+          case Some(roleId) =>
+            if (innerRisk.roleOfTheCurrentPlayer.roleId == roleId)
+              s"Click on a ${innerRisk.roleOfTheCurrentPlayer.color.toString.toLowerCase} tile to place a unit there."
+            else
+              "Wait for your turn."
+          case None => "You are not in this game."
         }
       }
       case _ => "NO HINT"
@@ -176,7 +396,7 @@ object Directives {
     innerRisk.phase match {
       case AddingUnits    => div()
       case DeployingUnits => {
-        if (you.role.contains(innerRisk.currentPlayerIndex)) {
+        if (you.role.contains(innerRisk.roleOfTheCurrentPlayer.roleId)) {
           val allTroopsAreDeployed = innerRisk.getCurrentPlayer.troops == 0
           val duText =
             if (actionMode.contains(DeployUnitMode)) selectX("DEPLOY UNIT")
@@ -224,7 +444,7 @@ object Directives {
         if (innerRisk.campaign.map(_.campaignStatus).contains(RUNNING)) {
           div("A campaign is in progress.")
         } else {
-          if (you.role.contains(innerRisk.currentPlayerIndex)) {
+          if (you.role.contains(innerRisk.roleOfTheCurrentPlayer.roleId)) {
             actionMode match {
               case None => {
                 val buttons = List(
@@ -418,10 +638,10 @@ object Directives {
 
   def infoScreen(
       you: FrontendPlayer,
-      innerRisk: ClientInnerRisk,
-      colorMap: ColorMap
+      innerRisk: ClientInnerRisk
   )(implicit players: List[FrontendPlayer]): TagOf[Div] = {
-    val yourColor: Option[RiskColor] = you.role.flatMap(colorMap.colorOfRole)
+    val yourColor: Option[RiskColor] =
+      you.role.flatMap(roleId => Try(getRiskColorFromRoleId(roleId)).toOption)
 
     def x1(): TagOf[Div] = {
       if (yourColor.isDefined)
@@ -432,10 +652,10 @@ object Directives {
 
     def x2(): TagOf[Div] = {
       val cp: String = players
-        .find(_.role.contains(innerRisk.currentPlayerIndex))
+        .find(_.role.contains(innerRisk.roleOfTheCurrentPlayer.roleId))
         .map(_.name)
         .getOrElse("___MISSING_PLAYER___")
-      if (you.role.contains(innerRisk.currentPlayerIndex))
+      if (you.role.contains(innerRisk.roleOfTheCurrentPlayer.roleId))
         div("This is your turn.")
       else
         div(s"This is the turn of $cp.")
@@ -452,14 +672,14 @@ object Directives {
       campaign: ClientCampaign,
       territories: List[TerritoryOccupationInfo]
   ): TagOf[Div] = {
-    val defendersRole = territories(campaign.destination).roleId
-    val attackersRole = territories(campaign.source).roleId
+    val defendersRole = territories(campaign.destination).role
+    val attackersRole = territories(campaign.source).role
     val yourRole: Option[Int] = you.flatMap(_.role)
 
     val text = {
-      if (yourRole.contains(attackersRole))
+      if (yourRole.contains(attackersRole.roleId))
         "You are the attacker."
-      else if (yourRole.contains(defendersRole))
+      else if (yourRole.contains(defendersRole.roleId))
         "You are the defender."
       else
         "You are not involved in this campaign"
@@ -474,7 +694,7 @@ object Directives {
   ): TagOf[Div] = {
     assert(innerRisk.campaign.isDefined)
     val campaign = innerRisk.campaign.get
-    if (yourRole.contains(innerRisk.defendersRole)) {
+    if (yourRole.contains(innerRisk.defendersRole.roleId)) {
       val troopsAtDestination =
         innerRisk.territories(campaign.destination).noOfUnits
       campaign.campaignStatus match {
@@ -536,7 +756,7 @@ object Directives {
           }
         }
       }
-    } else if (yourRole.contains(innerRisk.attackersRole)) {
+    } else if (yourRole.contains(innerRisk.attackersRole.roleId)) {
       val troopsAtSource = innerRisk.territories(campaign.source).noOfUnits
       campaign.campaignStatus match {
         case DEFENDER_LOST => {
@@ -661,47 +881,40 @@ object Directives {
 
   def miniMap0(
       territories: List[TerritoryOccupationInfo],
-      colorMap: ColorMap,
       arrow: (Int, Int)
   ): TagOf[Div] = {
     div(
       VdomStyle("userSelect") := "none",
-      MapGenerator.miniMap(territories, colorMap, arrow)
+      MapGenerator.miniMap(territories, arrow)
     )
   }
 
   def hungary(
       territories: List[TerritoryOccupationInfo],
-      colorMap: ColorMap,
       arrow: Option[(Int, Int)] = None,
       commander: Option[EventLoop.EventHandler[Event]] = None
   ): TagOf[Div] = {
     assert(territories.size == 20)
     div(
       VdomStyle("userSelect") := "none",
-      MapGenerator.mapOfHungary(territories, colorMap, arrow, commander)
+      MapGenerator.mapOfHungary(territories, arrow, commander)
     )
   }
 
   def playersScoreDisplayer(
-      colorMap: ColorMap,
-      riskPlayers: List[ClientRiskPlayer],
-      currentPlayer: Int
+                             riskPlayers: Map[RiskRole, ClientRiskPlayerInfo],
+                             currentPlayerId: Int
   )(implicit players: List[FrontendPlayer]): TagOf[Div] = {
-    val q = riskPlayers
-      .sortBy(_.role)
-      .map(rp => {
-        val playerName = players
-          .find(_.role.contains(rp.role))
-          .map(_.name)
-          .getOrElse("###MISSING_PLAYER###")
-        val color = colorMap.colorOfRole(rp.role)
-        (rp, playerName, color)
+    val q = riskPlayers.toList
+      .sortBy(_._1.roleId)
+      .map({ case (role, rp) =>
+        val playerName = FrontendPlayer.getNameOfPlayerWithRole(role.roleId)
+        (rp, playerName, role)
       })
     div(
       borderLeft := "3px solid yellow",
       (for (rp <- q) yield {
-        val td = if (rp._1.role == currentPlayer) "underline" else "none"
+        val td = if (rp._3.roleId == currentPlayerId) "underline" else "none"
         val t = if (rp._1.eliminated) " [ELIMINATED]" else rp._1.troops
         val inventory = rp._1.inventorySize match {
           case 1          => " [1 item]"
@@ -710,7 +923,7 @@ object Directives {
         }
         div(
           textDecoration := td,
-          rp._2 + " (" + rp._3.get + ") - " + t + inventory
+          rp._2 + " (" + rp._3 + ") - " + t + inventory
         )
       }).toTagMod
     )
@@ -740,14 +953,14 @@ object Directives {
     )
   }
 
-  def generalCampaignInfo(
+  private def generalCampaignInfo(
       campaign: ClientCampaign,
       territories: List[TerritoryOccupationInfo]
   )(implicit players: List[FrontendPlayer]): TagOf[Div] = {
 
     val prefix = "games/risk/coatOfArms/"
 
-    val attackersRoleId = territories(campaign.source).roleId
+    val attackersRoleId = territories(campaign.source).role.roleId
     val nameOfTheAttacker = players
       .find(_.role.contains(attackersRoleId))
       .map(_.name)
@@ -756,7 +969,7 @@ object Directives {
     val linkToCoatOfArmsOfTheAttacker =
       prefix + MapGenerator.myMap(campaign.source)._4
 
-    val defendersRoleId = territories(campaign.destination).roleId
+    val defendersRoleId = territories(campaign.destination).role.roleId
     val nameOfTheDefender = players
       .find(_.role.contains(defendersRoleId))
       .map(_.name)
@@ -816,7 +1029,10 @@ object Directives {
     )
   }
 
-  def battleComponent(battleNumber: Int, battle: ClientBattle): TagOf[Div] = {
+  private def battleComponent(
+      battleNumber: Int,
+      battle: ClientBattle
+  ): TagOf[Div] = {
 
     def bb(battle: ClientBattle): TagOf[TableSection] = {
       battle.phase match {
@@ -997,7 +1213,7 @@ object Directives {
     )
   }
 
-  def buttonStack(buttons: List[TagOf[Button]]): TagOf[Div] = {
+  private def buttonStack(buttons: List[TagOf[Button]]): TagOf[Div] = {
     div(
       display := "flex",
       flexDirection := "column",

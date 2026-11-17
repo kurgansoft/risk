@@ -11,7 +11,7 @@ import scala.scalajs.js.annotation.JSExportTopLevel
 @JSExportTopLevel("ep")
 object RiskUILauncher extends EntryPoint {
   gbge.shared.RG.gameCodecs = List(
-    ClientRisk.codec.asInstanceOf[JsonCodec[FrontendGame[? <: GameAction]]]
+    ClientRisk.codec.asInstanceOf[JsonCodec[FrontendGame[?, ?]]]
   )
   gbge.ui.RG.registeredGames = List(RiskGameProps)
 }

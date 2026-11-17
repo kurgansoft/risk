@@ -24,21 +24,15 @@ abstract class AbstractBattle(
       assert(defenderDie.map(_.size).get == noOfDefenders)
     }
     phase match {
-      case DeclareNoOfTroopsPhase => {
+      case DeclareNoOfTroopsPhase =>
         assert(noOfDefenders == 0)
         assert(attackerDie.isEmpty && defenderDie.isEmpty)
-      }
-      case DiceThrowingPhase => {
+      case DiceThrowingPhase =>
         assert(noOfDefenders == 1 || noOfDefenders == 2)
         assert(attackerDie.isEmpty || defenderDie.isEmpty)
-      }
-      case ResultPhase => {
+      case ResultPhase =>
         assert(noOfDefenders == 1 || noOfDefenders == 2)
         assert(attackerDie.isDefined && defenderDie.isDefined)
-      }
-      case _ => {
-        println("nothing to assert here...")
-      }
     }
   }
 

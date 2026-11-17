@@ -12,21 +12,17 @@ object RiskAction {
   val codec: JsonCodec[RiskAction] = Schema.derived.jsonCodec
 }
 
-case class DropColor(roleId: Int) extends RiskAction
+sealed abstract class Toggle(val role: RiskRole) extends RiskAction
 
-case class PickColor(roleId: Int, color: RiskColor) extends RiskAction
+case class ToggleRollAttackerDieAutomatically(override val role: RiskRole)
+    extends Toggle(role)
 
-abstract sealed class Toggle(val roleId: Int) extends RiskAction
-
-case class ToggleRollAttackerDieAutomatically(override val roleId: Int)
-    extends Toggle(roleId)
-
-case class ToggleRollDefenderDieAutomatically(override val roleId: Int)
-    extends Toggle(roleId)
+case class ToggleRollDefenderDieAutomatically(override val role: RiskRole)
+    extends Toggle(role)
 
 case class ToggleDefendWithOneAutomaticallyIfOnlyOneUnitIsPresent(
-    override val roleId: Int
-) extends Toggle(roleId)
+    override val role: RiskRole
+) extends Toggle(role)
 
 case object Init extends RiskAction {
   override val adminOnly: Boolean = true

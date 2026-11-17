@@ -1,19 +1,15 @@
 package risk.shared
 
-import risk.shared.abstract0.{AbstractRiskPlayer, RiskColor}
+import risk.shared.abstract0.{AbstractRiskPlayerInfo, RiskColor}
 
-case class ClientRiskPlayer(
-    override val role: Int,
-    override val color: RiskColor,
+case class ClientRiskPlayerInfo(
     override val troops: Int,
     override val eliminated: Boolean,
     override val rollDefenderDieAutomatically: Boolean,
     override val rollAttackerDieAutomatically: Boolean,
     override val defendWithOneAutomaticallyIfOnlyOneUnitIsPresent: Boolean,
     inventory: Either[Int, List[String]]
-) extends AbstractRiskPlayer(
-      role,
-      color,
+) extends AbstractRiskPlayerInfo(
       troops,
       eliminated,
       rollDefenderDieAutomatically,

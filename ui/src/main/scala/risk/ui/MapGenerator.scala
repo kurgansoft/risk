@@ -3,8 +3,9 @@ package risk.ui
 import japgolly.scalajs.react.Callback
 import japgolly.scalajs.react.vdom.TagOf
 import org.scalajs.dom.svg.SVG
-import japgolly.scalajs.react.vdom.svg_<^.{<, _}
-import risk.shared.abstract0._
+import japgolly.scalajs.react.vdom.svg_<^.{<, *}
+import risk.shared.abstract0
+import risk.shared.abstract0.*
 import uiglue.{Event, EventLoop}
 
 object MapGenerator {
@@ -147,7 +148,6 @@ object MapGenerator {
 
   def mapOfHungary(
       x: List[TerritoryOccupationInfo],
-      colorMap: ColorMap,
       arrow: Option[(Int, Int)] = None,
       commander: Option[EventLoop.EventHandler[Event]] = None
   ): TagOf[SVG] = {
@@ -157,9 +157,7 @@ object MapGenerator {
       ^.height := "840px",
       ^.viewBox := "0 0 800 506",
       (for (i <- 0 to 19) yield {
-        val color: String = colorMap.colorOfRole(x(i).roleId).get.toString
-        val numberColor =
-          if (color == "white" || color == "yellow") "black" else "yellow"
+        val color: RiskColor = x(i).role.color
         val text: String = generateText(x(i))
         val cb = Callback {
           commander.foreach(_.apply(TerritoryClicked(i)))
@@ -167,12 +165,12 @@ object MapGenerator {
         <.g(
           japgolly.scalajs.react.vdom.html_<^.^.onClick --> cb,
           <.path(
-            ^.fill := color,
+            ^.fill := color.colorCode,
             ^.d := myMap(i)._1
           ),
           <.title(myMap(i)._3),
           <.text(
-            ^.fill := numberColor,
+            ^.fill := color.contrastColorCode,
             ^.textAnchor := "middle",
             ^.x := myMap(i)._2._1,
             ^.y := myMap(i)._2._2,
@@ -206,7 +204,6 @@ object MapGenerator {
 
   def miniMap(
       territories: List[TerritoryOccupationInfo],
-      colorMap: ColorMap,
       arrow: (Int, Int)
   ): TagOf[SVG] = {
     // assert that they are neighbours
@@ -253,10 +250,7 @@ object MapGenerator {
       ^.viewBox := "0 0 " + w + " " + h,
       <.g(
         <.path(
-          ^.fill := colorMap
-            .colorOfRole(territories(arrow._1).roleId)
-            .get
-            .toString,
+          ^.fill := territories(arrow._1).role.color.colorCode,
           ^.d := pushedFrom,
           <.title(from._3)
         ),
@@ -270,10 +264,7 @@ object MapGenerator {
       ),
       <.g(
         <.path(
-          ^.fill := colorMap
-            .colorOfRole(territories(arrow._2).roleId)
-            .get
-            .toString,
+          ^.fill := territories(arrow._2).role.color.colorCode,
           ^.d := pushedTo,
           <.title(to._3)
         ),

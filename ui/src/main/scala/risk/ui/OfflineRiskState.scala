@@ -5,6 +5,7 @@ import gbge.shared.{FrontendUniverse, GameState}
 import gbge.ui.state.OfflineState
 import risk.shared.ClientRisk
 import risk.shared.abstract0.*
+import risk.shared.abstract0.GamePhase.*
 import uiglue.Event
 import zio.{UIO, ZIO}
 
@@ -77,7 +78,7 @@ case class OfflineRiskState(
     }
   }
 
-  def reduce0(
+  private def reduce0(
       event: OfflineRiskEvent,
       fu: Option[FrontendUniverse],
       playerId: Option[Int]
@@ -85,45 +86,15 @@ case class OfflineRiskState(
     val clientRisk = fu.get.game.get.asInstanceOf[ClientRisk]
     val you = playerId.flatMap(id => fu.flatMap(_.players.find(_.id == id)))
     event match {
-      case ClientToggleRollAttackerDieAutomatically => {
+      case ClientToggleRollAttackerDieAutomatically =>
         if (you.isDefined && you.get.role.isDefined)
           (
             this,
             ZIO.succeed(
               List(
                 DispatchActionWithToken(
-                  ToggleRollAttackerDieAutomatically(you.get.role.get)
-                )
-              )
-            )
-          )
-        else
-          this
-      }
-      case ClientToggleRollDefenderDieAutomatically => {
-        if (you.isDefined && you.get.role.isDefined)
-          (
-            this,
-            ZIO.succeed(
-              List(
-                DispatchActionWithToken(
-                  ToggleRollDefenderDieAutomatically(you.get.role.get)
-                )
-              )
-            )
-          )
-        else
-          this
-      }
-      case ClientToggleDefendWithOneAutomaticallyIfOnlyOneUnitIsPresent => {
-        if (you.isDefined && you.get.role.isDefined)
-          (
-            this,
-            ZIO.succeed(
-              List(
-                DispatchActionWithToken(
-                  ToggleDefendWithOneAutomaticallyIfOnlyOneUnitIsPresent(
-                    you.get.role.get
+                  ToggleRollAttackerDieAutomatically(
+                    RiskRole.getRoleFromRoleId(you.get.role.get)
                   )
                 )
               )
@@ -131,20 +102,51 @@ case class OfflineRiskState(
           )
         else
           this
-      }
-      case TerritoryClicked(index) => {
-        if (
-          clientRisk.state == GameState.IN_PROGRESS && clientRisk.innerRisk.isDefined
-        ) {
+      case ClientToggleRollDefenderDieAutomatically =>
+        if (you.isDefined && you.get.role.isDefined)
+          (
+            this,
+            ZIO.succeed(
+              List(
+                DispatchActionWithToken(
+                  ToggleRollDefenderDieAutomatically(
+                    RiskRole.getRoleFromRoleId(you.get.role.get)
+                  )
+                )
+              )
+            )
+          )
+        else
+          this
+      case ClientToggleDefendWithOneAutomaticallyIfOnlyOneUnitIsPresent =>
+        if (you.isDefined && you.get.role.isDefined)
+          (
+            this,
+            ZIO.succeed(
+              List(
+                DispatchActionWithToken(
+                  ToggleDefendWithOneAutomaticallyIfOnlyOneUnitIsPresent(
+                    RiskRole.getRoleFromRoleId(you.get.role.get)
+                  )
+                )
+              )
+            )
+          )
+        else
+          this
+      case TerritoryClicked(index) =>
+        if (clientRisk.innerRisk.isDefined) {
           val innerRisk = clientRisk.innerRisk.get
           innerRisk.phase match {
-            case AddingUnits => {
+            case AddingUnits =>
               if (
                 you
                   .flatMap(_.role)
-                  .contains(innerRisk.currentPlayerIndex) && innerRisk
+                  .contains(
+                    innerRisk.roleOfTheCurrentPlayer.roleId
+                  ) && innerRisk
                   .territories(index)
-                  .roleId == innerRisk.currentPlayerIndex
+                  .role == innerRisk.roleOfTheCurrentPlayer
               ) {
                 (
                   this,
@@ -155,14 +157,17 @@ case class OfflineRiskState(
               } else {
                 this
               }
-            }
-            case DeployingUnits => {
-              if (you.flatMap(_.role).contains(innerRisk.currentPlayerIndex)) {
+            case DeployingUnits =>
+              if (
+                you
+                  .flatMap(_.role)
+                  .contains(innerRisk.roleOfTheCurrentPlayer.roleId)
+              ) {
                 if (
                   actionMode.contains(DeployUnitMode) &&
                   innerRisk
                     .territories(index)
-                    .roleId == innerRisk.currentPlayerIndex &&
+                    .role == innerRisk.roleOfTheCurrentPlayer &&
                   innerRisk.getCurrentPlayer.troops != 0
                 ) {
                   (
@@ -177,7 +182,7 @@ case class OfflineRiskState(
                   actionMode.contains(RetractUnitMode) &&
                   innerRisk
                     .territories(index)
-                    .roleId == innerRisk.currentPlayerIndex &&
+                    .role == innerRisk.roleOfTheCurrentPlayer &&
                   innerRisk.territories(index).noOfProposedUnits > 0
                 ) {
                   (
@@ -194,14 +199,17 @@ case class OfflineRiskState(
               } else {
                 this
               }
-            }
-            case BattleAndManeuver => {
-              if (you.flatMap(_.role).contains(innerRisk.currentPlayerIndex)) {
+            case BattleAndManeuver =>
+              if (
+                you
+                  .flatMap(_.role)
+                  .contains(innerRisk.roleOfTheCurrentPlayer.roleId)
+              ) {
                 actionMode match {
-                  case Some(AttackMode(source, destination)) => {
+                  case Some(AttackMode(source, destination)) =>
                     val territory = innerRisk.territories(index)
                     if (
-                      source.isEmpty && territory.roleId == innerRisk.currentPlayerIndex && territory.noOfUnits >= 2
+                      source.isEmpty && territory.role == innerRisk.roleOfTheCurrentPlayer && territory.noOfUnits >= 2
                     ) {
                       this.copy(actionMode =
                         Some(AttackMode(Some(index), None))
@@ -211,7 +219,7 @@ case class OfflineRiskState(
                       innerRisk.areTheyNeighbours(source.get, index) &&
                       innerRisk
                         .territories(index)
-                        .roleId != innerRisk.currentPlayerIndex
+                        .role != innerRisk.roleOfTheCurrentPlayer
                     ) {
                       this.copy(actionMode =
                         Some(AttackMode(source, Some(index)))
@@ -219,11 +227,10 @@ case class OfflineRiskState(
                     } else {
                       this
                     }
-                  }
-                  case Some(ManeuverMode(from, to, noOfTroops)) => {
+                  case Some(ManeuverMode(from, to, noOfTroops)) =>
                     val territory = innerRisk.territories(index)
                     val newManeuverState =
-                      if (territory.roleId != innerRisk.currentPlayerIndex) {
+                      if (territory.role != innerRisk.roleOfTheCurrentPlayer) {
                         ManeuverMode(from, to, noOfTroops)
                       } else if (from.isEmpty && territory.noOfUnits >= 2) {
                         ManeuverMode(Some(index), to, noOfTroops)
@@ -236,35 +243,29 @@ case class OfflineRiskState(
                         ManeuverMode(from, to, noOfTroops)
                       }
                     this.copy(actionMode = Some(newManeuverState))
-                  }
                   case _ => this
                 }
               } else {
                 this
               }
-            }
             case _ => this
           }
         } else {
           this
         }
-      }
-      case SelectOfflineActionMode(actionMode) => {
+      case SelectOfflineActionMode(actionMode) =>
         this.copy(actionMode = Some(actionMode))
-      }
       case CancelOfflineActionMode => this.copy(actionMode = None)
-      case ClientCommit            => {
+      case ClientCommit            =>
         (
           this.copy(actionMode = None),
           ZIO.succeed(List(DispatchActionWithToken(CommitDeployment)))
         )
-      }
-      case ClientSkip => {
+      case ClientSkip =>
         (this, ZIO.succeed(List(DispatchActionWithToken(Skip))))
-      }
-      case ClientLaunch => {
+      case ClientLaunch =>
         actionMode match {
-          case Some(AttackMode(source, destination)) => {
+          case Some(AttackMode(source, destination)) =>
             if (source.isDefined && destination.isDefined) {
               (
                 this,
@@ -279,46 +280,37 @@ case class OfflineRiskState(
             } else {
               this
             }
-          }
           case _ => this
         }
-      }
-      case SwitchToTab(tab) => {
+      case SwitchToTab(tab) =>
         this.copy(tab = tab)
-      }
-      case ClientInit => {
+      case ClientInit =>
         (this, ZIO.succeed(List(DispatchActionWithToken(Init))))
-      }
-      case ClientAttack(noOfAttackers) => {
+      case ClientAttack(noOfAttackers) =>
         // check stuff
         (
           this,
           ZIO.succeed(List(DispatchActionWithToken(Attack(noOfAttackers))))
         )
-      }
-      case ClientDefend(noOfDefenders) => {
+      case ClientDefend(noOfDefenders) =>
         // check stuff
         (
           this,
           ZIO.succeed(List(DispatchActionWithToken(Defend(noOfDefenders))))
         )
-      }
-      case ClientRollDiceForAttacker => {
+      case ClientRollDiceForAttacker =>
         // check stuff
         (this, ZIO.succeed(List(DispatchActionWithToken(RollDiceForAttacker))))
-      }
-      case ClientRollDiceForDefender => {
+      case ClientRollDiceForDefender =>
         // check stuff
         (this, ZIO.succeed(List(DispatchActionWithToken(RollDiceForDefender))))
-      }
-      case ClientAbandonCurrentCampaign => {
+      case ClientAbandonCurrentCampaign =>
         // check stuff
         (
           this,
           ZIO.succeed(List(DispatchActionWithToken(AbandonCurrentCampaign)))
         )
-      }
-      case ClientMoveInToConqueredTerritory(noOfTroopsToMoveIn) => {
+      case ClientMoveInToConqueredTerritory(noOfTroopsToMoveIn) =>
         // check stuff
         (
           this.copy(actionMode = None),
@@ -330,8 +322,7 @@ case class OfflineRiskState(
             )
           )
         )
-      }
-      case ClientManeuverTroops(from, to, noOfTroops) => {
+      case ClientManeuverTroops(from, to, noOfTroops) =>
         // check stuff
         (
           this.copy(actionMode = None),
@@ -339,8 +330,7 @@ case class OfflineRiskState(
             List(DispatchActionWithToken(ManeuverTroops(from, to, noOfTroops)))
           )
         )
-      }
-      case ClientDecreaseProposedNumberOfPlayers => {
+      case ClientDecreaseProposedNumberOfPlayers =>
         // check stuff
         (
           this,
@@ -352,8 +342,7 @@ case class OfflineRiskState(
             )
           )
         )
-      }
-      case ClientIncreaseProposedNumberOfPlayers => {
+      case ClientIncreaseProposedNumberOfPlayers =>
         // check stuff
         (
           this,
@@ -365,8 +354,6 @@ case class OfflineRiskState(
             )
           )
         )
-      }
-      case _ => this
     }
   }
 }

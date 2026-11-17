@@ -1,82 +1,49 @@
 package risk.shared.abstract0
 
-import gbge.shared.GameRole
-
-abstract sealed class GamePhase
-case object AddingUnits extends GamePhase
-case object DeployingUnits extends GamePhase
-case object BattleAndManeuver extends GamePhase
-case object GameOver extends GamePhase
-
-abstract sealed class RiskColor
-
-object RiskColor {
-  val enumerateColors: List[RiskColor] = List(Red, White, Green, Blue, Yellow)
-}
-
-case object Red extends RiskColor {
-  override def toString: String = "red"
-}
-case object White extends RiskColor {
-  override def toString: String = "white"
-}
-case object Green extends RiskColor {
-  override def toString: String = "green"
-}
-case object Blue extends RiskColor {
-  override def toString: String = "blue"
-}
-case object Yellow extends RiskColor {
-  override def toString: String = "yellow"
-}
-
-case class RiskRole(playerNumber: Int) extends GameRole {
-  override val roleId: Int = playerNumber
-}
+import risk.shared.abstract0.GamePhase.*
 
 abstract class AbstractInnerRisk(
-    val territories: List[TerritoryOccupationInfo] =
+                                  val territories: List[TerritoryOccupationInfo] =
       List.empty, // x2(roleId, noOfUnits)
-    val players: List[AbstractRiskPlayer] = List.empty,
-    val currentPlayerIndex: Int = 0, // the roleId of the current player
-    val phase: GamePhase = AddingUnits,
-    val campaign: Option[AbstractCampaign] = None,
-    val round: Int = 0,
-    val noOfTerritoriesConqueredInThisRoundByTheCurrentPlayer: Int = 0
+                                  val players: Map[RiskRole, AbstractRiskPlayerInfo],
+                                  val roleOfTheCurrentPlayer: RiskRole,
+                                  val phase: GamePhase = AddingUnits,
+                                  val campaign: Option[AbstractCampaign] = None,
+                                  val round: Int = 0,
+                                  val noOfTerritoriesConqueredInThisRoundByTheCurrentPlayer: Int = 0
 ) {
 
   lazy val arrow: Option[(Int, Int)] =
     campaign.map(c => (c.source, c.destination))
 
-  lazy val defendersRole: Int = {
+  lazy val defendersRole: RiskRole = {
     assert(phase == BattleAndManeuver)
     assert(campaign.isDefined)
     val targetTerritory = campaign.get.destination
-    territories(targetTerritory).roleId
+    territories(targetTerritory).role
   }
 
-  lazy val attackersRole: Int = {
+  lazy val attackersRole: RiskRole = {
     assert(phase == BattleAndManeuver)
     assert(campaign.isDefined)
     val targetTerritory = campaign.get.source
-    territories(targetTerritory).roleId
+    territories(targetTerritory).role
   }
 
-  def getPlayerById(playerId: Int): Option[AbstractRiskPlayer] =
-    players.find(_.role == playerId)
+  def getPlayerById(role: RiskRole): Option[AbstractRiskPlayerInfo] =
+    players.get(role)
 
-  lazy val getCurrentPlayer: AbstractRiskPlayer = getPlayerById(
-    currentPlayerIndex
-  ).get
+  lazy val getCurrentPlayer: AbstractRiskPlayerInfo =
+    players(roleOfTheCurrentPlayer)
 
-  def calculateNoOfNewTroopsForRole(roleId: Int): Int = {
-    val noOfControlledTerritories: Int = territories.count(_.roleId == roleId)
+  private def calculateNoOfNewTroopsForRole(role: RiskRole): Int = {
+    val noOfControlledTerritories: Int = territories.count(_.role == role)
     val divided: Int = noOfControlledTerritories / 2
     Math.max(3, divided)
   }
 
   lazy val calculateNoOfNewTroops: Int = calculateNoOfNewTroopsForRole(
-    currentPlayerIndex
+    roleOfTheCurrentPlayer
   )
 
   def areTheyNeighbours(one: Int, other: Int): Boolean =
@@ -96,8 +63,8 @@ abstract class AbstractInnerRisk(
     } else if (t1 == t2) {
       true
     } else {
-      val owner = territories(t1).roleId
-      if (territories(t2).roleId != owner) {
+      val owner = territories(t1).role
+      if (territories(t2).role != owner) {
         false
       } else {
         var alreadyReached = Set(t1)
@@ -111,7 +78,7 @@ abstract class AbstractInnerRisk(
             before = alreadyReached.size
             for (t <- toExplore) {
               alreadyReached = alreadyReached ++ ts(t).neighbours.filter(
-                territories(_).roleId == owner
+                territories(_).role == owner
               )
               exhaustedOnes = exhaustedOnes + t
             }

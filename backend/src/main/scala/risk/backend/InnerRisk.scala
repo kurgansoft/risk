@@ -9,33 +9,47 @@ import gbge.backend.{
 import risk.shared.ClientInnerRisk
 import risk.shared.abstract0.*
 import zio.blocks.schema.*
+import risk.shared.abstract0.GamePhase.*
 
 import scala.language.implicitConversions
 import scala.util.Random
 
 case class InnerRisk private[backend] (
-    override val territories: List[TerritoryOccupationInfo],
-    override val players: List[RiskPlayer],
-    override val currentPlayerIndex: Int,
-    override val phase: GamePhase = AddingUnits,
-    override val campaign: Option[Campaign] = None,
-    override val round: Int = 0,
-    override val noOfTerritoriesConqueredInThisRoundByTheCurrentPlayer: Int = 0
-) extends AbstractInnerRisk {
+                                        override val territories: List[TerritoryOccupationInfo],
+                                        override val players: Map[RiskRole, RiskPlayerInfo],
+                                        override val roleOfTheCurrentPlayer: RiskRole,
+                                        override val phase: GamePhase = AddingUnits,
+                                        override val campaign: Option[Campaign] = None,
+                                        override val round: Int = 0,
+                                        override val noOfTerritoriesConqueredInThisRoundByTheCurrentPlayer: Int = 0
+) extends AbstractInnerRisk(
+      territories,
+      players,
+      roleOfTheCurrentPlayer,
+      phase,
+      campaign,
+      round,
+      noOfTerritoriesConqueredInThisRoundByTheCurrentPlayer
+    ) {
+
+  override lazy val getCurrentPlayer: RiskPlayerInfo =
+    players(roleOfTheCurrentPlayer)
 
   implicit def convert(innerRisk: InnerRisk): Either[Failure, InnerRisk] =
     Right(innerRisk)
 
-  def toClientInnerGame(role: Option[Int] = None): ClientInnerRisk = {
+  def toClientInnerGame(
+      roleOfTheInvoker: Option[RiskRole] = None
+  ): ClientInnerRisk = {
     ClientInnerRisk(
       territories,
-      players.map(p => {
-        if (role.contains(p.role)) {
-          p.toOwnersClientRiskPlayer
+      players.map({ case (role, playerInfo) =>
+        if (roleOfTheInvoker.contains(role)) {
+          role -> playerInfo.toOwnersClientRiskPlayer
         } else
-          p.toClientRiskPlayer
+          role -> playerInfo.toClientRiskPlayer
       }),
-      currentPlayerIndex,
+      roleOfTheCurrentPlayer,
       phase,
       campaign.map(_.toClientBattle()),
       round,
@@ -43,35 +57,24 @@ case class InnerRisk private[backend] (
     )
   }
 
-  override def getPlayerById(playerId: Int): Option[RiskPlayer] =
-    players.find(_.role == playerId)
-
-  override lazy val getCurrentPlayer: RiskPlayer = getPlayerById(
-    currentPlayerIndex
-  ).get
-
-  private lazy val currentPlayerLen: Optional[List[RiskPlayer], RiskPlayer] =
-    InnerRisk.playerLenByIndex(currentPlayerIndex)
-
-  private def playerLenByRoleId(
-      roleId: Int
-  ): Optional[List[RiskPlayer], RiskPlayer] = {
-    val index = this.players.indexWhere(_.role == roleId)
-    InnerRisk.playerLenByIndex(index)
-  }
-
   private val nextRoundNumber: Int = {
-    val roles = players.filterNot(_.eliminated).map(_.role)
-    if (!roles.exists(_ > currentPlayerIndex))
+    val roles = activeRoles
+    if (roles.lastOption.contains(roleOfTheCurrentPlayer))
       round + 1
     else
       round
   }
 
-  private val nextPlayerId: Int = {
-    val roles = players.filterNot(_.eliminated).map(_.role)
-    val greaterRoles = roles.filter(_ > currentPlayerIndex)
-    greaterRoles.minOption.getOrElse(roles.min)
+  private def activeRoles: List[RiskRole] =
+    players.iterator
+      .collect { case (role, player) if !player.eliminated => role }
+      .toList
+      .sortBy(_.roleId)
+
+  private lazy val nextPlayerId: RiskRole = {
+    val roles = activeRoles
+    val index = roles.indexOf(roleOfTheCurrentPlayer)
+    roles((index + 1) % roles.size)
   }
 
   private lazy val sourceTerritoryLen
@@ -95,26 +98,26 @@ case class InnerRisk private[backend] (
 
   def reduce(
       riskAction: RiskAction,
-      invokerRole: Option[Int]
+      invokerRole: RiskRole
   ): Either[Failure, InnerRisk] = {
 
     val isTheInvokerTheCurrentPlayer: Boolean =
-      invokerRole.contains(this.currentPlayerIndex)
+      invokerRole == roleOfTheCurrentPlayer
 
     def checkStuffForTerritory(
         targetTerritory: Int
     ): Option[FailureWithMessage] = {
       val territoryExists: Boolean =
         targetTerritory >= 0 && targetTerritory < territories.size
-      if (!isTheInvokerTheCurrentPlayer) {
+      if (!players.contains(invokerRole)) {
         Some(UnauthorizedFailure("Authentication error."))
       } else if (!territoryExists) {
         Some(GeneralFailure("Target territory does not exists."))
       } else {
         val doesTerritoryBelongToInvoker: Boolean =
-          invokerRole.contains(territories(targetTerritory).roleId)
+          invokerRole == territories(targetTerritory).role
         val isItTheTurnOfTheInvoker: Boolean =
-          invokerRole.contains(currentPlayerIndex)
+          invokerRole == roleOfTheCurrentPlayer
         if (!isItTheTurnOfTheInvoker) {
           Some(GeneralFailure("It is not the turn of the invoker."))
         } else if (!doesTerritoryBelongToInvoker) {
@@ -126,17 +129,11 @@ case class InnerRisk private[backend] (
     }
 
     riskAction match {
-      case toggle: Toggle => {
-        val roleId = toggle.roleId
-        val riskPlayer: Option[RiskPlayer] = players.find(_.role == roleId)
-        if (riskPlayer.isEmpty) {
-          Left(GeneralFailure("No such player with that id."))
-        } else if (invokerRole.isEmpty) {
-          Left(UnauthorizedFailure("Authentication required."))
-        } else if (!invokerRole.contains(roleId)) {
+      case toggle: Toggle =>
+        if (toggle.role != invokerRole || !players.contains(invokerRole)) {
           Left(UnauthorizedFailure("Only the player can modify this setting."))
         } else {
-          val player = riskPlayer.get
+          val player = players(invokerRole)
           val modifiedPlayer = toggle match {
             case ToggleRollAttackerDieAutomatically(_) =>
               player.copy(rollAttackerDieAutomatically =
@@ -151,51 +148,45 @@ case class InnerRisk private[backend] (
                 !player.defendWithOneAutomaticallyIfOnlyOneUnitIsPresent
               )
           }
-          this.copy(players =
-            playerLenByRoleId(roleId).modify(players, _ => modifiedPlayer)
-          )
+          this.copy(players = players.updated(invokerRole, modifiedPlayer))
         }
-      }
-      case AddUnitToTerritory(targetTerritory) => {
+      case AddUnitToTerritory(targetTerritory) =>
         val error = checkStuffForTerritory(targetTerritory)
         if (error.isDefined) {
           Left(error.get)
         } else {
           phase match {
-            case AddingUnits => {
-              val player = getPlayerById(invokerRole.get)
-              assert(player.isDefined)
-              assert(player.get.troops > 0)
-              val updatedPlayer =
-                player.get.copy(troops = player.get.troops - 1)
-              val temp: TerritoryOccupationInfo = territories(targetTerritory)
-              val temp2 = temp.copy(noOfUnits = temp.noOfUnits + 1)
-              val newPlayers = players.map(player =>
-                if (player.role == invokerRole.get) updatedPlayer else player
-              )
-              val nextPhase =
-                if (newPlayers.forall(_.troops == 0)) DeployingUnits
-                else AddingUnits
-              val tempx: InnerRisk = this.copy(
-                territories = territories.updated(targetTerritory, temp2),
-                players = newPlayers,
-                currentPlayerIndex = nextPlayerId,
-                phase = nextPhase
-              )
-              if (nextPhase == AddingUnits) {
-                tempx
+            case AddingUnits =>
+              val player = players(invokerRole)
+              if (player.troops <= 0) {
+                Left(GeneralFailure("You have no troops left to place."))
               } else {
-                val newPlayer = tempx.getCurrentPlayer.copy(troops =
-                  tempx.calculateNoOfNewTroops
+                val updatedPlayer = player.copy(troops = player.troops - 1)
+                val temp = territories(targetTerritory)
+                val temp2 = temp.copy(noOfUnits = temp.noOfUnits + 1)
+                val newPlayers = players.updated(invokerRole, updatedPlayer)
+                val nextPhase =
+                  if (newPlayers.values.forall(_.troops == 0)) DeployingUnits
+                  else AddingUnits
+                val tempx = this.copy(
+                  territories = territories.updated(targetTerritory, temp2),
+                  players = newPlayers,
+                  roleOfTheCurrentPlayer = nextPlayerId,
+                  phase = nextPhase
                 )
-                val newPlayers = tempx.players.map({
-                  case RiskPlayer(newPlayer.role, _, _, _, _, _, _, _) =>
+                if (nextPhase == AddingUnits) {
+                  tempx
+                } else {
+                  val newPlayer = tempx.getCurrentPlayer.copy(troops =
+                    tempx.calculateNoOfNewTroops
+                  )
+                  val newPlayers = tempx.players.updated(
+                    tempx.roleOfTheCurrentPlayer,
                     newPlayer
-                  case x => x
-                })
-                tempx.copy(players = newPlayers, round = 1)
+                  )
+                  tempx.copy(players = newPlayers, round = 1)
+                }
               }
-            }
             case _ =>
               Left(
                 GeneralFailure(
@@ -204,14 +195,13 @@ case class InnerRisk private[backend] (
               )
           }
         }
-      }
-      case DeployUnitToTerritory(targetTerritory) => {
+      case DeployUnitToTerritory(targetTerritory) =>
         val error = checkStuffForTerritory(targetTerritory)
         if (error.isDefined) {
           Left(error.get)
         } else {
           phase match {
-            case DeployingUnits => {
+            case DeployingUnits =>
               val player = getCurrentPlayer
               if (player.troops <= 0) {
                 Left(
@@ -224,15 +214,12 @@ case class InnerRisk private[backend] (
                 val temp: TerritoryOccupationInfo = territories(targetTerritory)
                 val temp2 =
                   temp.copy(noOfProposedUnits = temp.noOfProposedUnits + 1)
-                val newPlayers = players.map(player =>
-                  if (player.role == invokerRole.get) updatedPlayer else player
-                )
+                val newPlayers = players.updated(invokerRole, updatedPlayer)
                 this.copy(
                   territories = territories.updated(targetTerritory, temp2),
                   players = newPlayers
                 )
               }
-            }
             case _ =>
               Left(
                 GeneralFailure(
@@ -241,14 +228,13 @@ case class InnerRisk private[backend] (
               )
           }
         }
-      }
-      case RetractUnitFromTerritory(targetTerritory) => {
+      case RetractUnitFromTerritory(targetTerritory) =>
         val error = checkStuffForTerritory(targetTerritory)
         if (error.isDefined) {
           Left(error.get)
         } else {
           phase match {
-            case DeployingUnits => {
+            case DeployingUnits =>
               val player = getCurrentPlayer
               val t3: TerritoryOccupationInfo = territories(targetTerritory)
               if (t3.noOfProposedUnits < 1) {
@@ -257,15 +243,12 @@ case class InnerRisk private[backend] (
                 val updatedPlayer = player.copy(troops = player.troops + 1)
                 val temp2 =
                   t3.copy(noOfProposedUnits = t3.noOfProposedUnits - 1)
-                val newPlayers = players.map(player =>
-                  if (player.role == invokerRole.get) updatedPlayer else player
-                )
+                val newPlayers = players.updated(invokerRole, updatedPlayer)
                 this.copy(
                   territories = territories.updated(targetTerritory, temp2),
                   players = newPlayers
                 )
               }
-            }
             case _ =>
               Left(
                 GeneralFailure(
@@ -274,13 +257,12 @@ case class InnerRisk private[backend] (
               )
           }
         }
-      }
-      case CommitDeployment => {
-        if (!invokerRole.contains(this.currentPlayerIndex)) {
+      case CommitDeployment =>
+        if (invokerRole != roleOfTheCurrentPlayer) {
           Left(GeneralFailure("This is not your turn."))
         } else {
           phase match {
-            case DeployingUnits => {
+            case DeployingUnits =>
               val player = getCurrentPlayer
               if (player.troops != 0) {
                 Left(
@@ -299,7 +281,6 @@ case class InnerRisk private[backend] (
                   )
                 )
               }
-            }
             case _ =>
               Left(
                 GeneralFailure(
@@ -308,14 +289,18 @@ case class InnerRisk private[backend] (
               )
           }
         }
-      }
-      case LaunchCampaign(source, destination) => {
+      case LaunchCampaign(source, destination) =>
         if (phase != BattleAndManeuver) {
           Left(GeneralFailure("Wrong phase."))
-        } else if (!invokerRole.contains(this.currentPlayerIndex)) {
+        } else if (invokerRole != roleOfTheCurrentPlayer) {
           Left(GeneralFailure("This is not your turn."))
+        } else if (
+          source < 0 || source >= territories.size || destination < 0 ||
+          destination >= territories.size
+        ) {
+          Left(GeneralFailure("Invalid territory."))
         } else {
-          val role = invokerRole.get
+          val role = invokerRole
           if (
             this.campaign.isDefined && campaign.exists(
               _.campaignStatus == RUNNING
@@ -324,13 +309,13 @@ case class InnerRisk private[backend] (
             Left(
               GeneralFailure("The current campaign needs to be resolved first.")
             )
-          } else if (this.territories(source).roleId != role) {
+          } else if (this.territories(source).role != role) {
             Left(
               GeneralFailure(
                 "You may only attack from a territory that you control."
               )
             )
-          } else if (this.territories(destination).roleId == role) {
+          } else if (this.territories(destination).role == role) {
             Left(
               GeneralFailure(
                 "You cannot attack a territory which is already under your control."
@@ -346,8 +331,7 @@ case class InnerRisk private[backend] (
             )
           }
         }
-      }
-      case bca: CampaignAction => {
+      case bca: CampaignAction =>
         if (phase != BattleAndManeuver) {
           Left(GeneralFailure("Wrong phase."))
         } else if (campaign.isEmpty) {
@@ -358,8 +342,8 @@ case class InnerRisk private[backend] (
             case Left(failure)        => Left(failure)
             case Right(campaignAfter) =>
               bca match {
-                case Attack(noOfAttackers) => {
-                  if (!invokerRole.contains(attackersRole)) {
+                case Attack(noOfAttackers) =>
+                  if (invokerRole != attackersRole) {
                     Left(
                       GeneralFailure(
                         "The 'Attack' action can only be initiated by the attacker."
@@ -374,17 +358,16 @@ case class InnerRisk private[backend] (
                       )
                     )
                   }
-                }
-                case Defend(noOfDefenders) => {
+                case Defend(noOfDefenders) =>
                   val autoDefend: Boolean = {
                     val targetTerritory = this.destinationTerritoryLen
                       .getOption(this.territories)
                       .get
                     val defendingPlayer =
-                      players.find(_.role == targetTerritory.roleId).get
+                      players(targetTerritory.role)
                     defendingPlayer.defendWithOneAutomaticallyIfOnlyOneUnitIsPresent && targetTerritory.noOfUnits == 1
                   }
-                  if (!invokerRole.contains(defendersRole) && !autoDefend) {
+                  if (invokerRole != defendersRole && !autoDefend) {
                     Left(
                       UnauthorizedFailure(
                         "The 'Defend' action can either be initiated by the defender or can be triggered by autodefend"
@@ -399,11 +382,9 @@ case class InnerRisk private[backend] (
                       )
                     )
                   }
-                }
-                case RollDiceForAttacker | RollDiceForDefender => {
+                case RollDiceForAttacker | RollDiceForDefender =>
                   this.copy(campaign = Some(campaignAfter))
-                }
-                case DiceResultForAttacker(_) | DiceResultForDefender(_) => {
+                case DiceResultForAttacker(_) | DiceResultForDefender(_) =>
                   if (campaignAfter.battle.phase == ResultPhase) {
                     val tempTerritories: List[TerritoryOccupationInfo] =
                       destinationTerritoryLen.modify(
@@ -421,12 +402,6 @@ case class InnerRisk private[backend] (
                           campaignAfter.battle.remainingAttackingTroops
                         )
                       )
-                    val d = destinationTerritoryLen
-                      .getOption(updatedTerritories)
-                      .getOrElse(???)
-                    val s = sourceTerritoryLen
-                      .getOption(updatedTerritories)
-                      .getOrElse(???)
                     val newStatus =
                       if (
                         destinationTerritoryLen
@@ -469,21 +444,21 @@ case class InnerRisk private[backend] (
                       territories = updatedTerritories,
                       noOfTerritoriesConqueredInThisRoundByTheCurrentPlayer =
                         counter,
-                      players = currentPlayerLen.modify(
-                        players,
-                        cp =>
-                          cp.copy(inventory = cp.inventory ::: reward.toList)
+                      players = players.updated(
+                        roleOfTheCurrentPlayer,
+                        getCurrentPlayer.copy(
+                          inventory =
+                            getCurrentPlayer.inventory ::: reward.toList
+                        )
                       )
                     )
                   } else {
                     this.copy(campaign = Some(campaignAfter))
                   }
-                }
               }
           }
         }
-      }
-      case MoveInToConqueredTerritory(noOfTroops) => {
+      case MoveInToConqueredTerritory(noOfTroops) =>
         if (!territoryJustGotConquered) {
           Left(GeneralFailure("Wrong phase"))
         } else {
@@ -510,22 +485,23 @@ case class InnerRisk private[backend] (
                 _.copy(
                   noOfUnits = noOfTroops,
                   noOfUnitsInBattle = 0,
-                  roleId = attackersRole
+                  role = attackersRole
                 )
               )
 
-            val np = this.players.map(player => {
+            val np = this.players.map { case (role, player) =>
               if (
                 !player.eliminated && !updatedTerritories
-                  .exists(_.roleId == player.role)
+                  .exists(_.role == role)
               ) {
-                player.copy(eliminated = true)
+                role -> player.copy(eliminated = true)
               } else {
-                player
+                role -> player
               }
-            })
+            }
             val newPhase =
-              if (np.filterNot(_.eliminated).size == 1) GameOver else this.phase
+              if (np.values.count(player => !player.eliminated) == 1) GameOver
+              else this.phase
             this.copy(
               players = np,
               territories = updatedTerritories,
@@ -534,8 +510,7 @@ case class InnerRisk private[backend] (
             )
           }
         }
-      }
-      case AbandonCurrentCampaign => {
+      case AbandonCurrentCampaign =>
         if (
           campaign.isEmpty || campaign.get.campaignStatus != RUNNING || campaign.get.battle.phase != ResultPhase
         )
@@ -551,8 +526,7 @@ case class InnerRisk private[backend] (
             .modify(t1, _.normalize())
           this.copy(campaign = Some(updatedCampaign), territories = t2)
         }
-      }
-      case ManeuverTroops(from, to, noOfTroops) => {
+      case ManeuverTroops(from, to, noOfTroops) =>
         if (!isTheInvokerTheCurrentPlayer) {
           Left(UnauthorizedFailure("Authentication error."))
         } else if (phase != BattleAndManeuver) {
@@ -567,9 +541,14 @@ case class InnerRisk private[backend] (
               "First you need to move in at least 1 troop to the conquered territory."
             )
           )
-        } else if (!invokerRole.contains(territories(from).roleId)) {
+        } else if (
+          from < 0 || from >= territories.size || to < 0 ||
+          to >= territories.size
+        ) {
+          Left(GeneralFailure("Invalid territory."))
+        } else if (invokerRole != territories(from).role) {
           Left(GeneralFailure("Source is not under your command."))
-        } else if (!invokerRole.contains(territories(to).roleId)) {
+        } else if (invokerRole != territories(to).role) {
           Left(GeneralFailure("Destination is not under your command."))
         } else if (noOfTroops >= territories(from).noOfUnits) {
           Left(GeneralFailure("Too many troops"))
@@ -598,22 +577,21 @@ case class InnerRisk private[backend] (
             )
           val temp = this.copy(
             territories = t2,
-            currentPlayerIndex = nextPlayerId,
+            roleOfTheCurrentPlayer = nextPlayerId,
             phase = DeployingUnits,
             campaign = None,
             round = nextRoundNumber,
             noOfTerritoriesConqueredInThisRoundByTheCurrentPlayer = 0
           )
           temp.copy(players =
-            temp.currentPlayerLen.modify(
-              temp.players,
-              _.copy(troops = temp.calculateNoOfNewTroops)
+            temp.players.updated(
+              temp.roleOfTheCurrentPlayer,
+              temp.getCurrentPlayer.copy(troops = temp.calculateNoOfNewTroops)
             )
           )
         }
-      }
-      case Skip => {
-        if (!invokerRole.contains(this.currentPlayerIndex)) {
+      case Skip =>
+        if (invokerRole != roleOfTheCurrentPlayer) {
           Left(GeneralFailure("This is not your turn."))
         } else if (phase != BattleAndManeuver) {
           Left(GeneralFailure("Cannot skip in this phase."))
@@ -630,7 +608,7 @@ case class InnerRisk private[backend] (
         } else {
           val temp = copy(
             phase = DeployingUnits,
-            currentPlayerIndex = nextPlayerId,
+            roleOfTheCurrentPlayer = nextPlayerId,
             campaign = None,
             noOfTerritoriesConqueredInThisRoundByTheCurrentPlayer = 0,
             territories = destinationTerritoryLen.modify(
@@ -639,38 +617,34 @@ case class InnerRisk private[backend] (
             )
           )
           val temp2 = temp.copy(
-            players = temp.currentPlayerLen.modify(
-              temp.players,
-              _.copy(troops = temp.calculateNoOfNewTroops)
+            players = temp.players.updated(
+              temp.roleOfTheCurrentPlayer,
+              temp.getCurrentPlayer.copy(troops = temp.calculateNoOfNewTroops)
             ),
             round = nextRoundNumber
           )
           temp2
         }
-      }
-      case _ => {
+      case _ =>
         Left(GeneralFailure("Unsupported action"))
-      }
     }
   }
 }
 
 object InnerRisk {
-  def generate(colorMap: ColorMap, seed: Long): InnerRisk = {
-    val riskPlayers: List[RiskPlayer] = colorMap.colorMap
-      .map(entry => {
-        RiskPlayer(entry._2, entry._1, 10)
-      })
-      .toList
-      .sortBy(_.role)
+  def generate(roles: Set[RiskRole], seed: Long): InnerRisk = {
+    val riskPlayers: Map[RiskRole, RiskPlayerInfo] = roles
+      .map(role => role -> RiskPlayerInfo(10))
+      .toMap
+    val orderedRoles: List[RiskRole] = roles.toList.sortBy(_.roleId)
     val initialTerritoryDivision = (for (i <- 1 to 20) yield {
-      val modulo = colorMap.size - ((i - 1) % colorMap.size) - 1
-      TerritoryOccupationInfo(riskPlayers(modulo).role, 1)
+      val modulo = roles.size - ((i - 1) % roles.size) - 1
+      TerritoryOccupationInfo(orderedRoles(modulo), 1)
     }).toList
     InnerRisk(
       territories = new Random(seed).shuffle(initialTerritoryDivision),
       riskPlayers,
-      riskPlayers.map(_.role).min
+      roles.minBy(_.roleId)
     )
   }
 
@@ -683,15 +657,6 @@ object InnerRisk {
   ): Optional[List[TerritoryOccupationInfo], TerritoryOccupationInfo] = {
     Optional.at(
       Schema[List[TerritoryOccupationInfo]].reflect.asSequence.get,
-      index = index
-    )
-  }
-
-  private def playerLenByIndex(
-      index: Int
-  ): Optional[List[RiskPlayer], RiskPlayer] = {
-    Optional.at(
-      Schema[List[RiskPlayer]].reflect.asSequence.get,
       index = index
     )
   }

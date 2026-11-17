@@ -15,7 +15,7 @@ import zio.{
 
 object Launcher extends ZIOAppDefault {
 
-  private val games: Seq[BackendGameProps[?, ?]] = Seq(BackendRiskProps)
+  private val games: Seq[BackendGameProps[?, ?, ?]] = Seq(BackendRiskProps)
 
   private val gl = GenericLauncher(games)
 

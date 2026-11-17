@@ -3,11 +3,19 @@ package risk.shared
 import risk.shared.abstract0._
 
 case class ClientInnerRisk(
-    override val territories: List[TerritoryOccupationInfo],
-    override val players: List[ClientRiskPlayer],
-    override val currentPlayerIndex: Int,
-    override val phase: GamePhase,
-    override val campaign: Option[ClientCampaign] = None,
-    override val round: Int,
-    override val noOfTerritoriesConqueredInThisRoundByTheCurrentPlayer: Int
-) extends AbstractInnerRisk
+                            override val territories: List[TerritoryOccupationInfo],
+                            override val players: Map[RiskRole, ClientRiskPlayerInfo],
+                            override val roleOfTheCurrentPlayer: RiskRole,
+                            override val phase: GamePhase,
+                            override val campaign: Option[ClientCampaign] = None,
+                            override val round: Int,
+                            override val noOfTerritoriesConqueredInThisRoundByTheCurrentPlayer: Int
+) extends AbstractInnerRisk(
+      territories,
+      players,
+      roleOfTheCurrentPlayer,
+      phase,
+      campaign,
+      round,
+      noOfTerritoriesConqueredInThisRoundByTheCurrentPlayer
+    )

@@ -1,10 +1,10 @@
 package risk.shared
 
 import gbge.shared.GameProps
-import risk.shared.abstract0.RiskAction
+import risk.shared.abstract0.{RiskAction, RiskRole}
 import zio.blocks.schema.json.JsonCodec
 
-trait RiskProps extends GameProps[RiskAction, ClientRisk] {
+trait RiskProps extends GameProps[RiskRole, RiskAction, ClientRisk] {
   override val name: String = "Risk"
   override val urlFragment: String = "risk"
   override implicit val actionCodec: JsonCodec[RiskAction] = RiskAction.codec

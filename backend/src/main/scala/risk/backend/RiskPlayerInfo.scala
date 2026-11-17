@@ -1,12 +1,10 @@
 package risk.backend
 
-import risk.shared.ClientRiskPlayer
-import risk.shared.abstract0.{AbstractRiskPlayer, RiskColor}
+import risk.shared.ClientRiskPlayerInfo
+import risk.shared.abstract0.{AbstractRiskPlayerInfo, RiskColor}
 import zio.blocks.schema.Schema
 
-case class RiskPlayer(
-    override val role: Int,
-    override val color: RiskColor,
+case class RiskPlayerInfo(
     override val troops: Int,
     override val eliminated: Boolean = false,
     override val rollDefenderDieAutomatically: Boolean = false,
@@ -14,9 +12,7 @@ case class RiskPlayer(
     override val defendWithOneAutomaticallyIfOnlyOneUnitIsPresent: Boolean =
       false,
     inventory: List[String] = List.empty
-) extends AbstractRiskPlayer(
-      role,
-      color,
+) extends AbstractRiskPlayerInfo(
       troops,
       eliminated,
       rollDefenderDieAutomatically,
@@ -24,10 +20,8 @@ case class RiskPlayer(
       defendWithOneAutomaticallyIfOnlyOneUnitIsPresent
     ) {
 
-  lazy val toOwnersClientRiskPlayer: ClientRiskPlayer =
-    ClientRiskPlayer(
-      role,
-      color,
+  lazy val toOwnersClientRiskPlayer: ClientRiskPlayerInfo =
+    ClientRiskPlayerInfo(
       troops,
       eliminated,
       rollDefenderDieAutomatically,
@@ -36,10 +30,8 @@ case class RiskPlayer(
       Right(inventory)
     )
 
-  lazy val toClientRiskPlayer: ClientRiskPlayer =
-    ClientRiskPlayer(
-      role,
-      color,
+  lazy val toClientRiskPlayer: ClientRiskPlayerInfo =
+    ClientRiskPlayerInfo(
       troops,
       eliminated,
       rollDefenderDieAutomatically,
@@ -49,6 +41,6 @@ case class RiskPlayer(
     )
 }
 
-object RiskPlayer {
-  implicit val schema: Schema[RiskPlayer] = Schema.derived
+object RiskPlayerInfo {
+  implicit val schema: Schema[RiskPlayerInfo] = Schema.derived
 }

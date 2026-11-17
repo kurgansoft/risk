@@ -6,16 +6,16 @@ import gbge.ui.eps.player.ClientState
 import gbge.ui.eps.spectator.SpectatorState
 import japgolly.scalajs.react.Callback
 import japgolly.scalajs.react.vdom.TagOf
-import japgolly.scalajs.react.vdom.all._
+import japgolly.scalajs.react.vdom.all.*
 import org.scalajs.dom.html.Div
-import risk.shared.{ClientRisk, ClientRiskPlayer, RiskProps}
-import risk.shared.abstract0.RiskAction
+import risk.shared.{ClientRisk, ClientRiskPlayerInfo, RiskProps}
+import risk.shared.abstract0.{RiskAction, RiskRole}
 import uiglue.{Event, EventLoop}
 import zio.{UIO, ZIO}
 
 object RiskGameProps
     extends RiskProps
-    with ClientGameProps[RiskAction, ClientRisk] {
+    with ClientGameProps[RiskRole, RiskAction, ClientRisk] {
 
   override val handleNewFU: (ClientState, FrontendUniverse) => (
       ClientState,
@@ -68,8 +68,8 @@ object RiskGameProps
     (state, commander) => {
       val risk = state.frontendUniverse.get.game.get.asInstanceOf[ClientRisk]
       val you = state.playerMaybe.get
-      val riskPlayer: Option[ClientRiskPlayer] = risk.innerRisk.flatMap(
-        _.players.find(player => you.role.contains(player.role))
+      val riskPlayer: Option[ClientRiskPlayerInfo] = risk.innerRisk.flatMap(
+        _.players.find(player => you.role.contains(player._1.roleId)).map(_._2)
       )
       if (riskPlayer.isEmpty) {
         div("Seems like you are not in this game...")
